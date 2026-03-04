@@ -166,18 +166,19 @@ const ProfileModal = ({ onClose }) => {
     const role = profile?.role || user?.role;
     const canEdit = role === 'PRINCIPAL' || role === 'HOD';
 
+    const roleAsDesignation = role === 'PRINCIPAL' ? 'Principal' : role === 'HOD' ? 'Head of Department' : 'Faculty';
+
     const detailCards = [
         { key: 'fullName', icon: <User size={16} />, label: 'Full Name', value: profile?.fullName, bg: '#eff6ff', iconColor: '#2563eb', editable: true },
         { key: 'email', icon: <Mail size={16} />, label: 'Email', value: profile?.email, bg: '#fef3c7', iconColor: '#d97706', editable: true },
         { key: 'username', icon: <Hash size={16} />, label: 'Username', value: profile?.username, bg: '#f0fdf4', iconColor: '#059669', editable: true },
-        { key: 'designation', icon: <GraduationCap size={16} />, label: 'Designation', value: profile?.designation || (role === 'PRINCIPAL' ? 'Principal' : '—'), bg: '#ecfdf5', iconColor: '#059669', editable: true },
+        { key: 'designation', icon: <GraduationCap size={16} />, label: 'Designation', value: profile?.designation || roleAsDesignation, bg: '#ecfdf5', iconColor: '#059669', editable: true },
     ];
 
-    // Only show Department and Role for non-Principal
+    // Show Department for non-Principal
     if (role !== 'PRINCIPAL') {
         detailCards.push(
             { key: 'department', icon: <Building size={16} />, label: 'Department', value: profile?.department, bg: '#fce7f3', iconColor: '#be185d', editable: canEdit },
-            { key: 'role', icon: <Shield size={16} />, label: 'Role', value: getRoleLabel(role), bg: '#ede9fe', iconColor: '#7c3aed', editable: false },
         );
     }
 

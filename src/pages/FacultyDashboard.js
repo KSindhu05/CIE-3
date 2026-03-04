@@ -782,7 +782,8 @@ const FacultyDashboard = () => {
             path: '/dashboard/faculty',
             icon: <Bell size={20} />,
             isActive: activeSection === 'Notifications',
-            onClick: () => { setActiveSection('Notifications'); setSelectedSubject(null); }
+            onClick: () => { setActiveSection('Notifications'); setSelectedSubject(null); },
+            badge: unreadCount || null
         },
     ];
 
@@ -3822,13 +3823,55 @@ const FacultyDashboard = () => {
         setAssignLoading(false);
     };
 
+    const deptAssignFetchedRef = React.useRef(false);
     const renderDeptAssignment = () => {
-        // Fetch departments on first render of this section
-        if (allDepartments.length === 0) fetchAllDepartments();
-        if (myAssignmentRequests.length === 0) fetchMyAssignmentRequests();
+        // Fetch departments and requests only once
+        if (!deptAssignFetchedRef.current) {
+            deptAssignFetchedRef.current = true;
+            fetchAllDepartments();
+            fetchMyAssignmentRequests();
+        }
 
         const statusColors = { PENDING: '#f59e0b', APPROVED: '#10b981', REJECTED: '#ef4444' };
         const statusBg = { PENDING: '#fef3c7', APPROVED: '#d1fae5', REJECTED: '#fef2f2' };
+
+        const handleDeleteRequest = async (id) => {
+            if (!window.confirm('Are you sure you want to delete this request?')) return;
+            try {
+                const headers = { 'Authorization': `Bearer ${user.token}` };
+                const res = await fetch(`${API_BASE_URL}/faculty/assignment-request/${id}`, { method: 'DELETE', headers });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || 'Request deleted');
+                    fetchMyAssignmentRequests();
+                } else {
+                    showToast(data.message || 'Failed to delete', 'error');
+                }
+            } catch (e) {
+                showToast('Network error', 'error');
+            }
+        };
+
+        const handleEditRequest = async (req) => {
+            const newSubjects = prompt('Edit Subjects (comma-separated):', req.subjects);
+            if (newSubjects === null) return;
+            const newSections = prompt('Edit Sections (comma-separated):', req.sections || '');
+            if (newSections === null) return;
+            try {
+                const headers = { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' };
+                const body = JSON.stringify({ subjects: newSubjects, sections: newSections });
+                const res = await fetch(`${API_BASE_URL}/faculty/assignment-request/${req.id}`, { method: 'PUT', headers, body });
+                const data = await res.json();
+                if (res.ok) {
+                    showToast(data.message || 'Request updated');
+                    fetchMyAssignmentRequests();
+                } else {
+                    showToast(data.message || 'Failed to update', 'error');
+                }
+            } catch (e) {
+                showToast('Network error', 'error');
+            }
+        };
 
         return (
             <div>
@@ -4010,6 +4053,7 @@ const FacultyDashboard = () => {
                                         <th style={{ padding: '0.7rem' }}>Sections</th>
                                         <th style={{ padding: '0.7rem' }}>Requested On</th>
                                         <th style={{ padding: '0.7rem' }}>Status</th>
+                                        <th style={{ padding: '0.7rem' }}>Actions</th>
                                     </tr>
                                 </thead>
                                 <tbody>
@@ -4032,6 +4076,36 @@ const FacultyDashboard = () => {
                                                 }}>
                                                     {req.status}
                                                 </span>
+                                            </td>
+                                            <td style={{ padding: '0.7rem' }}>
+                                                <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                    {req.status === 'PENDING' && (
+                                                        <button
+                                                            onClick={() => handleEditRequest(req)}
+                                                            title="Edit Request"
+                                                            style={{
+                                                                padding: '5px 10px', borderRadius: '6px', border: '1px solid #dbeafe',
+                                                                background: '#eff6ff', color: '#2563eb', cursor: 'pointer',
+                                                                display: 'flex', alignItems: 'center', gap: '4px',
+                                                                fontSize: '0.78rem', fontWeight: 600
+                                                            }}
+                                                        >
+                                                            <Edit size={13} /> Edit
+                                                        </button>
+                                                    )}
+                                                    <button
+                                                        onClick={() => handleDeleteRequest(req.id)}
+                                                        title="Delete Request"
+                                                        style={{
+                                                            padding: '5px 10px', borderRadius: '6px', border: '1px solid #fecaca',
+                                                            background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
+                                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                                            fontSize: '0.78rem', fontWeight: 600
+                                                        }}
+                                                    >
+                                                        <Trash2 size={13} /> Delete
+                                                    </button>
+                                                </div>
                                             </td>
                                         </tr>
                                     ))}

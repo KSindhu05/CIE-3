@@ -4,7 +4,7 @@ import API_BASE_URL from '../config/api';
 import DashboardLayout from '../components/DashboardLayout';
 import {
     LayoutDashboard, Users, FileText, CheckCircle, TrendingUp, BarChart2,
-    AlertTriangle, Briefcase, Bell, Activity, Clock, Award,
+    AlertTriangle, Briefcase, Bell, Activity, Clock, Award, ClipboardList, Phone,
     Edit, Save, LogOut, ShieldAlert, X, BookOpen, Layers, Megaphone, Calendar, MapPin, PenTool, Download, Mail, Trash2, Key, UserPlus, Upload, GitPullRequest, Eye, Send
 } from 'lucide-react';
 import {
@@ -84,6 +84,14 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
     const [cieTrendData, setCieTrendData] = useState([0, 0, 0, 0, 0]);
     const [allSubjectPerformance, setAllSubjectPerformance] = useState([]);
 
+    // HOD Performance Tab State (Faculty-style)
+    const [hodPerformanceTab, setHodPerformanceTab] = useState('low');
+    const [hodFilterSubject, setHodFilterSubject] = useState('All');
+    const [hodFilterCIE, setHodFilterCIE] = useState('All');
+    const [hodExcellentList, setHodExcellentList] = useState([]);
+    const [hodAverageList, setHodAverageList] = useState([]);
+    const [hodLowList, setHodLowList] = useState([]);
+
     // Syllabus Form State
     const [syllabusForm, setSyllabusForm] = useState({ subjectId: '', cieNumber: '1', syllabus: '' });
     const [syllabusLoading, setSyllabusLoading] = useState(false);
@@ -122,6 +130,10 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
     // Notification State
     const [notifications, setNotifications] = useState([]);
     const [unreadCount, setUnreadCount] = useState(0);
+
+    // Faculty Assignment Requests State
+    const [pendingAssignments, setPendingAssignments] = useState([]);
+    const [assignReqLoading, setAssignReqLoading] = useState(false);
 
     // Student Management State
     const [studentForm, setStudentForm] = useState({
@@ -284,6 +296,7 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
         }
     };
 
+    const pendingFacultyRequestsCount = pendingAssignments.filter(r => r.status === 'PENDING').length;
     const menuItems = [
         { label: 'Overview', path: '#overview', icon: <LayoutDashboard size={20} />, isActive: activeTab === 'overview', onClick: () => setActiveTab('overview') },
         { label: 'CIE Schedule', path: '#cie-schedule', icon: <Calendar size={20} />, isActive: activeTab === 'cie-schedule', onClick: () => setActiveTab('cie-schedule') },
@@ -291,12 +304,12 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
         { label: 'IA Monitoring', path: '#monitoring', icon: <Activity size={20} />, isActive: activeTab === 'monitoring', onClick: () => setActiveTab('monitoring') },
         { label: 'Student Performance', path: '#performance', icon: <TrendingUp size={20} />, isActive: activeTab === 'performance', onClick: () => setActiveTab('performance') },
         { label: 'Faculty Management', path: '#faculty', icon: <Briefcase size={20} />, isActive: activeTab === 'faculty', onClick: () => setActiveTab('faculty') },
-        { label: 'Faculty Requests', path: '#faculty-requests', icon: <GitPullRequest size={20} />, isActive: activeTab === 'faculty-requests', onClick: () => setActiveTab('faculty-requests') },
+        { label: 'Faculty Requests', path: '#faculty-requests', icon: <GitPullRequest size={20} />, isActive: activeTab === 'faculty-requests', onClick: () => setActiveTab('faculty-requests'), badge: pendingFacultyRequestsCount || null },
         { label: 'All Students', path: '#all-students', icon: <Users size={20} />, isActive: activeTab === 'all-students', onClick: () => setActiveTab('all-students') },
         { label: 'Student Management', path: '#student-mgmt', icon: <UserPlus size={20} />, isActive: activeTab === 'student-mgmt', onClick: () => setActiveTab('student-mgmt') },
-        { label: 'IA Approval Panel', path: '#approvals', icon: <CheckCircle size={20} />, isActive: activeTab === 'approvals', onClick: () => setActiveTab('approvals') },
+        { label: 'IA Approval Panel', path: '#approvals', icon: <CheckCircle size={20} />, isActive: activeTab === 'approvals', onClick: () => setActiveTab('approvals'), badge: pendingApprovals.length || null },
         { label: 'Update Marks', path: '#marks', icon: <PenTool size={20} />, isActive: activeTab === 'update-marks', onClick: () => setActiveTab('update-marks') },
-        { label: 'Notifications', path: '#notifications', icon: <Bell size={20} />, isActive: activeTab === 'notifications', onClick: () => setActiveTab('notifications') },
+        { label: 'Notifications', path: '#notifications', icon: <Bell size={20} />, isActive: activeTab === 'notifications', onClick: () => setActiveTab('notifications'), badge: unreadCount || null },
     ];
 
 
@@ -450,7 +463,7 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
 
     // Fetch Subject Marks Data for IA Monitoring
     useEffect(() => {
-        if ((activeTab === 'monitoring' || activeTab === 'faculty') && isMyDept && subjects.length > 0 && deptStudents.length > 0) {
+        if ((activeTab === 'monitoring' || activeTab === 'faculty' || activeTab === 'performance') && isMyDept && subjects.length > 0 && deptStudents.length > 0) {
             const fetchSubjectMarks = async () => {
                 try {
                     const token = user?.token;
@@ -632,6 +645,45 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
             fetchPerformanceData();
         }
     }, [activeTab, performanceSubjectId, isMyDept, selectedDept, user]);
+
+    // Compute Excellent/Average/Low performers from subjectMarksData for HOD performance tab
+    useEffect(() => {
+        if (activeTab !== 'performance' || Object.keys(subjectMarksData).length === 0) return;
+        const excellent = [];
+        const average = [];
+        const low = [];
+        Object.entries(subjectMarksData).forEach(([subjectName, marks]) => {
+            if (!Array.isArray(marks)) return;
+            marks.forEach(m => {
+                const cieEntries = [
+                    { type: 'CIE1', score: m.cie1Score, att: m.attendancePercentage },
+                    { type: 'CIE2', score: m.cie2Score, att: m.attendancePercentage },
+                    { type: 'CIE3', score: m.cie3Score, att: m.attendancePercentage },
+                    { type: 'CIE4', score: m.cie4Score, att: m.attendancePercentage },
+                    { type: 'CIE5', score: m.cie5Score, att: m.attendancePercentage }
+                ];
+                cieEntries.forEach(cie => {
+                    if (cie.score == null) return;
+                    const record = {
+                        studentId: m.student?.id || m.studentId,
+                        regNo: m.student?.regNo || '-',
+                        name: m.student?.name || '-',
+                        subject: subjectName,
+                        cieType: cie.type,
+                        score: cie.score,
+                        attendance: cie.att,
+                        parentPhone: m.student?.parentPhone || m.student?.phone || ''
+                    };
+                    if (cie.score > 40) excellent.push(record);
+                    else if (cie.score >= 20) average.push(record);
+                    else low.push(record);
+                });
+            });
+        });
+        setHodExcellentList(excellent);
+        setHodAverageList(average);
+        setHodLowList(low);
+    }, [activeTab, subjectMarksData]);
 
     useEffect(() => {
         const userDept = user?.department || 'CSE'; // Get from user profile
@@ -2119,7 +2171,170 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
                                     <p style={{ marginBottom: '1.5rem', color: '#6b7280' }}>
                                         Status: <span className={`${styles.statusBadge} ${viewingSubject.status === 'Approved' ? styles.approved : viewingSubject.status === 'Submitted' ? styles.submitted : styles.pending}`} style={{ marginLeft: '10px' }}>{viewingSubject.status}</span>
                                     </p><div className={styles.tableWrapper}><table className={styles.table}><thead><tr><th>Sl. No.</th><th>Reg No</th><th>Student Name</th><th>CIE-1</th><th>Att %</th><th>CIE-2</th><th>CIE-3</th><th>CIE-4</th><th>CIE-5</th><th>Total</th></tr></thead><tbody>{(() => { const subjectMarks = subjectMarksData[viewingSubject.name] || []; const studentsToShow = viewingSubject.status === 'Pending' ? deptStudents.filter(student => { const studentMark = subjectMarks.find(m => m.student?.regNo === student.regNo); return !studentMark || (studentMark.cie1Score === null && studentMark.cie2Score === null && studentMark.cie3Score === null); }) : deptStudents; return studentsToShow.map((student, index) => { const studentMark = subjectMarks.find(m => m.student?.regNo === student.regNo); const cie1 = studentMark?.cie1Score ?? '-'; const cie2 = studentMark?.cie2Score ?? '-'; const cie3 = studentMark?.cie3Score ?? '-'; const cie4 = studentMark?.cie4Score ?? '-'; const cie5 = studentMark?.cie5Score ?? '-'; const att = studentMark?.attendancePercentage ?? '-'; const total = (studentMark?.cie1Score || 0) + (studentMark?.cie2Score || 0) + (studentMark?.cie3Score || 0) + (studentMark?.cie4Score || 0) + (studentMark?.cie5Score || 0); return (<tr key={student.id}><td>{index + 1}</td><td>{student.regNo}</td><td>{student.name}</td><td>{cie1}</td><td>{att !== '-' ? `${att}%` : '-'}</td><td>{cie2}</td><td>{cie3}</td><td>{cie4}</td><td>{cie5}</td><td style={{ fontWeight: 'bold' }}>{studentMark ? total : '-'}</td></tr>); }); })()}</tbody></table></div></div></div></div>)}</div>)}
-            {activeTab === 'performance' && (<div className={styles.performanceContainer}><div className={styles.statsRow}><div className={styles.statCard}><div className={`${styles.iconBox} ${styles.blue}`}><Users size={24} /></div><div className={styles.statInfo}><p>Total Students</p><h3>{deptStudents.length || 0}</h3></div></div><div className={styles.statCard}><div className={`${styles.iconBox} ${styles.green}`}><TrendingUp size={24} /></div><div className={styles.statInfo}><p>Class Average</p><h3>{analytics?.average || 0}/50</h3></div></div><div className={styles.statCard}><div className={`${styles.iconBox} ${styles.purple}`}><Award size={24} /></div><div className={styles.statInfo}><p>Pass Rate</p><h3>{analytics?.passPercentage || 0}%</h3></div></div><div className={styles.statCard}><div className={`${styles.iconBox} ${styles.orange}`}><AlertTriangle size={24} /></div><div className={styles.statInfo}><p>At Risk</p><h3>{analytics?.atRiskCount || 0}</h3></div></div></div><div className={styles.gridTwo}><div className={styles.card}><div className={styles.cardHeader}><h3>CIE Performance Trend</h3><select className={styles.deptSelect} style={{ padding: '0.4rem 0.8rem', fontSize: '0.85rem' }} value={performanceSubjectId} onChange={(e) => setPerformanceSubjectId(e.target.value)}><option value="all">All Subjects</option>{subjects.filter(s => s.name !== 'IC').map(s => (<option key={s.id} value={s.id}>{s.name}</option>))}</select></div><div className={styles.chartContainer}><Bar data={{ labels: ['CIE-1', 'CIE-2', 'CIE-3', 'CIE-4', 'CIE-5'], datasets: [{ label: 'Class Average', data: cieTrendData, backgroundColor: ['#3b82f6', '#8b5cf6', '#06b6d4', '#10b981', '#f59e0b'], borderRadius: 8 }] }} options={{ ...commonOptions, plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, max: 50 } } }} /></div></div><div className={styles.card}><div className={styles.cardHeader}><h3>Grade Distribution</h3></div><div className={styles.doughnutContainer}><Doughnut data={hodGradeDistribution} options={doughnutOptions} /></div></div></div><div className={styles.card} style={{ marginTop: '1.5rem' }}><div className={styles.cardHeader}><h3>Subject-wise Performance</h3></div><table className={styles.table}><thead><tr><th>Subject</th><th>CIE-1 Avg</th><th>CIE-2 Avg</th><th>CIE-3 Avg</th><th>CIE-4 Avg</th><th>CIE-5 Avg</th><th>Overall</th><th>Pass %</th></tr></thead><tbody>{allSubjectPerformance.map((item) => (<tr key={item.id}><td style={{ fontWeight: 600 }}>{item.name}</td>{['CIE1', 'CIE2', 'CIE3', 'CIE4', 'CIE5'].map((cieType) => { const avg = item.averages[cieType] || 0; return (<td key={cieType}><span style={{ color: avg >= 40 ? '#16a34a' : avg >= 30 ? '#ca8a04' : '#dc2626', fontWeight: 500 }}>{avg}/50</span></td>); })}<td style={{ fontWeight: 700 }}>{item.overall}/50</td><td><span className={`${styles.statusBadge} ${item.passRate >= 80 ? styles.approved : item.passRate >= 60 ? styles.submitted : styles.pending}`}>{item.passRate}%</span></td></tr>))}</tbody></table></div><div className={styles.card} style={{ marginTop: '1.5rem' }}><div className={styles.cardHeader}><h3 style={{ color: '#dc2626' }}>⚠️ At-Risk Students (Action Required)</h3><button className={styles.secondaryBtn} style={{ fontSize: '0.85rem' }}><Download size={14} /> Export List</button></div><table className={styles.table}><thead><tr><th>Reg No</th><th>Student Name</th><th>CIE Average</th><th>Issue</th><th>Action</th></tr></thead><tbody>{atRiskStudents.map((student) => (<tr key={student.id}><td>{student.rollNo}</td><td style={{ fontWeight: 500 }}>{student.name}</td><td><span style={{ color: student.avgMarks < 20 ? '#dc2626' : '#ca8a04', fontWeight: 600 }}>{student.avgMarks}/50</span></td><td><span className={styles.issueTag}>{student.issue}</span></td><td><div style={{ display: 'flex', gap: '0.5rem' }}><button className={styles.secondaryBtn} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem' }} onClick={() => alert(`Sending notification to ${student.name}`)}>Notify</button><button className={styles.secondaryBtn} style={{ padding: '0.3rem 0.6rem', fontSize: '0.8rem', background: '#fef2f2', color: '#dc2626', border: '1px solid #fecaca' }} onClick={() => alert(`Scheduling meeting with ${student.name}`)}>Meet</button></div></td></tr>))}</tbody></table></div></div>)}
+            {activeTab === 'performance' && (() => {
+                const perfTabs = [
+                    { id: 'excellent', label: 'Excellent Performance', color: '#10b981', bg: '#f0fdf4', borderColor: '#bcf0da', icon: <Award size={20} />, list: hodExcellentList, description: 'Students who scored more than 40/50 marks.' },
+                    { id: 'average', label: 'Average Performance', color: '#f59e0b', bg: '#fffbeb', borderColor: '#fde68a', icon: <ClipboardList size={20} />, list: hodAverageList, description: 'Students who scored between 20 and 40 marks.' },
+                    { id: 'low', label: 'Low Performance', color: '#ef4444', bg: '#fef2f2', borderColor: '#fecaca', icon: <AlertTriangle size={20} />, list: hodLowList, description: 'Students who scored 20 or fewer marks.' }
+                ];
+                const activeConfig = perfTabs.find(t => t.id === hodPerformanceTab) || perfTabs[2];
+                const currentData = activeConfig.list;
+                const filteredList = currentData
+                    .filter(item => hodFilterSubject === 'All' || item.subject === hodFilterSubject)
+                    .filter(item => hodFilterCIE === 'All' || item.cieType === hodFilterCIE);
+
+                return (
+                    <div className={styles.performanceContainer}>
+                        {/* Header with filters */}
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '1.5rem' }}>
+                            <div>
+                                <h2 style={{ color: '#1e293b', display: 'flex', alignItems: 'center', gap: '8px', margin: 0, fontSize: '1.3rem', fontWeight: 700 }}>
+                                    <BarChart2 size={24} /> Student Performance Analytics
+                                </h2>
+                                <p style={{ color: '#64748b', margin: '0.5rem 0 0 0', fontSize: '0.9rem' }}>
+                                    View and manage student performance across different categories.
+                                </p>
+                            </div>
+                            <div style={{ display: 'flex', gap: '10px' }}>
+                                <select className={styles.deptSelect} style={{ padding: '0.5rem 0.8rem', fontSize: '0.85rem', borderRadius: '8px' }} value={hodFilterSubject} onChange={(e) => setHodFilterSubject(e.target.value)}>
+                                    <option value="All">All Subjects</option>
+                                    {subjects.filter(s => s.name !== 'IC').map(sub => (<option key={sub.id} value={sub.name}>{sub.name}</option>))}
+                                </select>
+                                <select className={styles.deptSelect} style={{ padding: '0.5rem 0.8rem', fontSize: '0.85rem', borderRadius: '8px' }} value={hodFilterCIE} onChange={(e) => setHodFilterCIE(e.target.value)}>
+                                    <option value="All">All CIE</option>
+                                    {['CIE1', 'CIE2', 'CIE3', 'CIE4', 'CIE5'].map(cie => (<option key={cie} value={cie}>{cie}</option>))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* Tab Navigation */}
+                        <div style={{ display: 'flex', gap: '12px', marginBottom: '1.5rem', background: '#f8fafc', padding: '6px', borderRadius: '12px', width: 'fit-content' }}>
+                            {perfTabs.map(tab => (
+                                <button
+                                    key={tab.id}
+                                    onClick={() => setHodPerformanceTab(tab.id)}
+                                    style={{
+                                        display: 'flex', alignItems: 'center', gap: '8px',
+                                        padding: '10px 20px', borderRadius: '10px', border: 'none', cursor: 'pointer',
+                                        fontWeight: '600', fontSize: '0.9rem', transition: 'all 0.2s ease',
+                                        backgroundColor: hodPerformanceTab === tab.id ? 'white' : 'transparent',
+                                        color: hodPerformanceTab === tab.id ? tab.color : '#64748b',
+                                        boxShadow: hodPerformanceTab === tab.id ? '0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1)' : 'none'
+                                    }}
+                                >
+                                    {tab.icon}
+                                    {tab.label}
+                                    {tab.list.length > 0 && (
+                                        <span style={{
+                                            backgroundColor: hodPerformanceTab === tab.id ? tab.bg : '#e2e8f0',
+                                            color: hodPerformanceTab === tab.id ? tab.color : '#64748b',
+                                            borderRadius: '20px', padding: '2px 8px', fontSize: '0.75rem'
+                                        }}>
+                                            {tab.list.length}
+                                        </span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+
+                        {/* Table Card */}
+                        <div className={styles.card} style={{ borderTop: `4px solid ${activeConfig.color}` }}>
+                            <div style={{ padding: '1.5rem', borderBottom: '1px solid #f1f5f9', background: activeConfig.bg, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <div>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                                        <div style={{ color: activeConfig.color }}>{activeConfig.icon}</div>
+                                        <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#1e293b' }}>{activeConfig.label}</h3>
+                                    </div>
+                                    <p style={{ margin: '0.4rem 0 0 0', fontSize: '0.85rem', color: '#64748b' }}>{activeConfig.description}</p>
+                                </div>
+                                {(hodPerformanceTab === 'low' || hodPerformanceTab === 'average') && filteredList.length > 0 && (
+                                    <button
+                                        onClick={async () => {
+                                            const category = hodPerformanceTab === 'low' ? 'Low' : 'Average';
+                                            const defaultMsg = `Dear Student, your CIE performance is in the ${category} category. Please improve your preparation and consult your faculty for guidance. - HOD`;
+                                            const msg = prompt(`Send message to all ${filteredList.length} ${category} performers:`, defaultMsg);
+                                            if (!msg) return;
+                                            const uniqueStudentIds = [...new Set(filteredList.filter(s => s.studentId).map(s => s.studentId))];
+                                            if (uniqueStudentIds.length === 0) { alert('No student IDs found'); return; }
+                                            let sent = 0;
+                                            try {
+                                                const token = user?.token;
+                                                const headers = { 'Content-Type': 'application/json', ...(token ? { 'Authorization': `Bearer ${token}` } : {}) };
+                                                for (const sid of uniqueStudentIds) {
+                                                    const res = await fetch(`${API_BASE_URL}/notifications/direct`, {
+                                                        method: 'POST', headers,
+                                                        body: JSON.stringify({ userId: sid, message: msg, type: 'INFO', category: 'HOD' })
+                                                    });
+                                                    if (res.ok) sent++;
+                                                }
+                                                alert(`Message sent to ${sent}/${uniqueStudentIds.length} students successfully!`);
+                                            } catch (e) { alert(`Sent to ${sent} students. Error occurred.`); }
+                                        }}
+                                        style={{ padding: '8px 16px', borderRadius: '8px', border: '1px solid #dbeafe', background: '#eff6ff', color: '#2563eb', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '0.85rem', fontWeight: 600, whiteSpace: 'nowrap' }}
+                                    >
+                                        <Mail size={16} /> Send Message to All ({[...new Set(filteredList.filter(s => s.studentId).map(s => s.studentId))].length})
+                                    </button>
+                                )}
+                            </div>
+                            <div className={styles.tableWrapper}>
+                                <table className={styles.table}>
+                                    <thead>
+                                        <tr>
+                                            <th>Sl No</th>
+                                            <th>Reg No</th>
+                                            <th>Student Name</th>
+                                            <th>Marks</th>
+                                            <th>Attendance</th>
+                                            <th>{hodPerformanceTab === 'low' ? 'Action' : 'Phone'}</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {filteredList.length > 0 ? (
+                                            filteredList.map((item, i) => (
+                                                <tr key={i}>
+                                                    <td style={{ color: '#64748b' }}>{i + 1}</td>
+                                                    <td style={{ fontFamily: 'monospace', fontWeight: 600 }}>{item.regNo}</td>
+                                                    <td>
+                                                        <div style={{ fontWeight: 600 }}>{item.name}</div>
+                                                        <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>{item.subject} ({item.cieType})</div>
+                                                    </td>
+                                                    <td style={{ color: activeConfig.color, fontWeight: 'bold' }}>{item.score}/50</td>
+                                                    <td style={{ fontWeight: '500' }}>{item.attendance != null ? `${item.attendance}%` : 'N/A'}</td>
+                                                    <td>
+                                                        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                                                            <span style={{ fontSize: '0.85rem', fontWeight: '600', color: '#1e293b' }}>
+                                                                {item.parentPhone || 'No Contact'}
+                                                            </span>
+                                                            {hodPerformanceTab === 'low' && (
+                                                                <button
+                                                                    onClick={() => alert(`Alert sent to parent of ${item.name}`)}
+                                                                    title="Notify Parent"
+                                                                    style={{ color: '#dc2626', background: '#fef2f2', border: '1px solid #fee2e2', padding: '5px 10px', borderRadius: '8px', alignSelf: 'flex-start', display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.75rem', fontWeight: '600', cursor: 'pointer' }}
+                                                                >
+                                                                    <Phone size={14} /> Notify Parent
+                                                                </button>
+                                                            )}
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan="6" style={{ textAlign: 'center', padding: '4rem', color: '#64748b' }}>
+                                                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '12px' }}>
+                                                        {hodPerformanceTab === 'excellent' ? <TrendingUp size={48} color="#cbd5e1" /> : <CheckCircle size={48} color="#cbd5e1" />}
+                                                        <p style={{ fontSize: '1rem' }}>No students found in this category matching your filters!</p>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                );
+            })()}
             {activeTab === 'faculty' && (<div className={styles.facultyContainer}><div className={styles.card}><div className={styles.cardHeader}><h3>Department Faculty ({facultyList.length})</h3><div style={{ display: 'flex', gap: '1rem', position: 'relative' }}><button className={styles.primaryBtn} onClick={() => { setEditingFaculty(null); setFacultyForm({ fullName: '', username: '', email: '', password: 'password', designation: 'Faculty', subjects: '' }); setShowAddFacultyModal(true); }} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}><Users size={16} /> Add New Faculty</button><div style={{ position: 'relative' }}><button className={styles.secondaryBtn} onClick={() => setShowEditSelection(!showEditSelection)} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#f8fafc', border: '1px solid #e2e8f0' }}><Edit size={16} /> Edit Faculty</button>{showEditSelection && (<div style={{ position: 'absolute', top: '110%', right: 0, width: '250px', background: 'white', borderRadius: '8px', boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05)', border: '1px solid #e2e8f0', zIndex: 100, padding: '0.5rem' }}><p style={{ padding: '0.5rem', fontSize: '0.85rem', color: '#64748b', borderBottom: '1px solid #f1f5f9', marginBottom: '0.5rem' }}>Select Faculty to Edit:</p><div style={{ maxHeight: '300px', overflowY: 'auto' }}>{facultyList.map(fac => (<button key={fac.id} onClick={() => { handleEditFaculty(fac); setShowEditSelection(false); }} style={{ width: '100%', textAlign: 'left', padding: '0.75rem', borderRadius: '6px', border: 'none', background: 'none', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: '2px', transition: 'background 0.2s' }} onMouseEnter={e => e.currentTarget.style.background = '#f1f5f9'} onMouseLeave={e => e.currentTarget.style.background = 'none'}><span style={{ fontWeight: 600, fontSize: '0.9rem', color: '#1e293b' }}>{fac.fullName || fac.username}</span><small style={{ color: '#64748b' }}>{fac.designation || 'Faculty'}</small></button>))}</div></div>)}</div></div></div><div className={styles.facultyList} style={{ marginTop: '1.5rem', display: 'grid', gridTemplateColumns: 'repeat(auto-fill,minmax(300px,1fr))', gap: '1.5rem' }}>{facultyList.length > 0 ? facultyList.map(fac => (<div key={fac.id} className={styles.facultyItem} style={{ border: '1px solid #e2e8f0', borderRadius: '12px', padding: '1.5rem', background: 'white', display: 'flex', flexDirection: 'column' }}><div className={styles.facProfile} style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1rem' }}><div className={styles.avatarSm} style={{ width: '48px', height: '48px', borderRadius: '50%', background: '#eff6ff', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', fontSize: '1.2rem' }}>{fac.fullName ? fac.fullName.charAt(0) : fac.username.charAt(0)}</div><div style={{ flex: 1 }}><p className={styles.facName} style={{ fontWeight: 600, fontSize: '1.1rem', color: '#1e293b', margin: 0 }}>{fac.fullName || fac.username}</p><small className={styles.facStatus} style={{ color: '#64748b' }}>{fac.designation || 'Faculty Member'}</small>{(fac.semester || fac.section) && (<small style={{ color: '#2563eb', fontWeight: 500, fontSize: '0.8rem', marginTop: '2px', display: 'block' }}>Class Teacher: {fac.semester ? `${fac.semester} Sem` : ''} {fac.section ? `- Sec ${fac.section}` : ''}</small>)}</div></div><div style={{ marginBottom: '1rem', flex: 1 }}><span style={{ fontSize: '0.85rem', color: '#94a3b8', fontWeight: 600, textTransform: 'uppercase' }}>Subjects ({parseSubjects(fac.subjects).length})</span><div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>{parseSubjects(fac.subjects).length > 0 ? parseSubjects(fac.subjects).map((sub, i) => (<span key={i} style={{ fontSize: '0.8rem', background: '#f1f5f9', padding: '4px 8px', borderRadius: '4px', color: '#475569' }}>{sub}</span>)) : (<span style={{ fontSize: '0.8rem', color: '#cbd5e1' }}>No active subjects assigned</span>)}</div></div><div className={styles.facActions} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}><button className={styles.viewBtn} style={{ gridColumn: 'span 2' }} onClick={() => handleViewDashboard(fac)}><LayoutDashboard size={16} /> View Dashboard</button><button className={styles.msgBtn} onClick={() => handleMessage(fac)}><Mail size={16} /> Message</button><button className={styles.secondaryBtn} onClick={() => handleEditFaculty(fac)} style={{ border: '1px solid #e2e8f0', background: 'white', color: '#475569' }}><Edit size={16} /> Edit</button><button className={styles.secondaryBtn} onClick={() => openResetPasswordModal(fac.username, fac.fullName || fac.username, 'FACULTY')} style={{ border: '1px solid #fde68a', background: '#fef3c7', color: '#d97706' }}><Key size={14} /> Reset</button><button className={styles.secondaryBtn} onClick={() => handleDeleteFaculty(fac.id)} style={{ border: '1px solid #fee2e2', background: '#fef2f2', color: '#dc2626' }}><Trash2 size={16} /> Remove</button></div></div>)) : (<div style={{ gridColumn: '1/-1', textAlign: 'center', padding: '3rem', color: '#64748b' }}><Users size={48} style={{ marginBottom: '1rem', color: '#cbd5e1' }} /><p>No faculty members found for this department.</p></div>)}</div></div>{showAddFacultyModal && (<div className={styles.modalOverlay}><div className={styles.modalContent} style={{ maxWidth: '500px' }}><div className={styles.modalHeader}><h3>{editingFaculty ? 'Edit Faculty' : 'Add New Faculty'}</h3><button className={styles.closeBtn} onClick={() => setShowAddFacultyModal(false)}><X size={24} /></button></div><div className={styles.modalBody}><form onSubmit={handleAddFaculty} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}><div className={styles.formGroup}><label>Full Name</label><input value={facultyForm.fullName} onChange={e => setFacultyForm({ ...facultyForm, fullName: e.target.value })} required placeholder="e.g. Dr. John Doe" className={styles.input} /></div><div className={styles.formGroup}><label>Username</label><input value={facultyForm.username} onChange={e => setFacultyForm({ ...facultyForm, username: e.target.value })} required placeholder="jdoe" className={styles.input} />{editingFaculty && <small style={{ color: '#64748b', fontSize: '0.75rem' }}>⚠️ Changing the username will update the faculty's login ID.</small>}</div><div className={styles.formGroup}><label>Email</label><input value={facultyForm.email} onChange={e => setFacultyForm({ ...facultyForm, email: e.target.value })} type="email" required placeholder="john@college.edu" className={styles.input} /></div>{!editingFaculty && (<div className={styles.formGroup}><label>Password</label><input value={facultyForm.password} onChange={e => setFacultyForm({ ...facultyForm, password: e.target.value })} required placeholder="password" className={styles.input} /></div>)}<div className={styles.formGroup}><label>Designation</label><select value={facultyForm.designation} onChange={e => setFacultyForm({ ...facultyForm, designation: e.target.value })} className={styles.input}><option>Faculty</option><option>Guest Faculty</option></select></div><div className={styles.formGroup}><label>CIE Role</label><select value={facultyForm.cieRole || ''} onChange={e => setFacultyForm({ ...facultyForm, cieRole: e.target.value })} className={styles.input}><option value=''>All CIEs (Default)</option><option value='THEORY'>Theory Only (CIE-1, 2, 5)</option><option value='LAB'>Lab Only (CIE-3, 4)</option></select><small style={{ color: '#64748b', fontSize: '0.75rem' }}>Set for subjects shared between Theory and Lab faculty.</small></div><div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1rem' }}><button type="button" className={styles.secondaryBtn} onClick={() => setShowAddFacultyModal(false)}>Cancel</button><button type="submit" className={styles.primaryBtn} style={{ background: '#2563eb', color: 'white' }}>{editingFaculty ? 'Update Faculty' : 'Create Account'}</button></div></form></div></div></div>)}
                 {viewingFaculty && (<div className={styles.modalOverlay} onClick={() => setViewingFaculty(null)}><div className={styles.modalContent} style={{ maxWidth: '700px' }} onClick={e => e.stopPropagation()}><div className={styles.modalHeader}><div><h2 style={{ fontSize: '1.25rem', fontWeight: 600 }}>{viewingFaculty.fullName || viewingFaculty.username}</h2><span className={styles.badge} style={{ position: 'static', padding: '2px 8px', borderRadius: '4px', background: '#eff6ff', color: '#2563eb', fontWeight: 500, fontSize: '0.85rem' }}>Dashboard Overview</span></div><button className={styles.closeBtn} onClick={() => setViewingFaculty(null)}><X size={24} /></button></div><div className={styles.modalBody}>{(() => {
                     let totalAvg = 0;
@@ -2479,9 +2694,6 @@ const HODDashboard = ({ isSpectator = false, spectatorDept = null }) => {
 
 
     // ========== FACULTY ASSIGNMENT REQUESTS ==========
-    const [pendingAssignments, setPendingAssignments] = useState([]);
-    const [assignReqLoading, setAssignReqLoading] = useState(false);
-
     const fetchPendingAssignments = async () => {
         if (!selectedDept || !user?.token) return;
         setAssignReqLoading(true);
