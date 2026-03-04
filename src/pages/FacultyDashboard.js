@@ -50,6 +50,7 @@ const FacultyDashboard = () => {
     const [assignSemester, setAssignSemester] = useState('');
     const [availableSections, setAvailableSections] = useState([]);
     const [myAssignmentRequests, setMyAssignmentRequests] = useState([]);
+    const [editingAssignReq, setEditingAssignReq] = useState(null);
     const [assignLoading, setAssignLoading] = useState(false);
 
     // API State
@@ -3853,17 +3854,48 @@ const FacultyDashboard = () => {
         };
 
         const handleEditRequest = async (req) => {
-            const newSubjects = prompt('Edit Subjects (comma-separated):', req.subjects);
-            if (newSubjects === null) return;
-            const newSections = prompt('Edit Sections (comma-separated):', req.sections || '');
-            if (newSections === null) return;
+            const subjectsArr = req.subjects ? req.subjects.split(',').map(s => s.trim()).filter(Boolean) : [];
+            const sectionsArr = req.sections ? req.sections.split(',').map(s => s.trim()).filter(Boolean) : [];
+            setEditingAssignReq({
+                id: req.id,
+                department: req.targetDepartment,
+                semester: req.semester || '',
+                subjects: subjectsArr,
+                sections: sectionsArr,
+                editSubjects: [],
+                editSections: []
+            });
+            // Fetch subjects for that department
+            try {
+                const headers = { 'Authorization': `Bearer ${user.token}` };
+                const subRes = await fetch(`${API_BASE_URL}/faculty/department-subjects?department=${encodeURIComponent(req.targetDepartment)}`, { headers });
+                if (subRes.ok) {
+                    const subData = await subRes.json();
+                    setEditingAssignReq(prev => prev ? { ...prev, editSubjects: subData } : prev);
+                }
+                if (req.semester) {
+                    const secRes = await fetch(`${API_BASE_URL}/faculty/available-sections?department=${encodeURIComponent(req.targetDepartment)}&semester=${encodeURIComponent(req.semester)}`, { headers });
+                    if (secRes.ok) {
+                        const secData = await secRes.json();
+                        setEditingAssignReq(prev => prev ? { ...prev, editSections: Array.isArray(secData) ? secData : [] } : prev);
+                    }
+                }
+            } catch (e) { console.error('Error fetching edit data', e); }
+        };
+
+        const handleSaveEditRequest = async () => {
+            if (!editingAssignReq) return;
             try {
                 const headers = { 'Authorization': `Bearer ${user.token}`, 'Content-Type': 'application/json' };
-                const body = JSON.stringify({ subjects: newSubjects, sections: newSections });
-                const res = await fetch(`${API_BASE_URL}/faculty/assignment-request/${req.id}`, { method: 'PUT', headers, body });
+                const body = JSON.stringify({
+                    subjects: editingAssignReq.subjects.join(', '),
+                    sections: editingAssignReq.sections.join(', ')
+                });
+                const res = await fetch(`${API_BASE_URL}/faculty/assignment-request/${editingAssignReq.id}`, { method: 'PUT', headers, body });
                 const data = await res.json();
                 if (res.ok) {
                     showToast(data.message || 'Request updated');
+                    setEditingAssignReq(null);
                     fetchMyAssignmentRequests();
                 } else {
                     showToast(data.message || 'Failed to update', 'error');
@@ -4058,56 +4090,184 @@ const FacultyDashboard = () => {
                                 </thead>
                                 <tbody>
                                     {myAssignmentRequests.map(req => (
-                                        <tr key={req.id}>
-                                            <td style={{ padding: '0.7rem', fontWeight: 500 }}>{req.targetDepartment}</td>
-                                            <td style={{ padding: '0.7rem', fontSize: '0.9rem' }}>{req.subjects}</td>
-                                            <td style={{ padding: '0.7rem' }}>{req.sections || '-'}</td>
-                                            <td style={{ padding: '0.7rem', fontSize: '0.85rem', color: '#64748b' }}>
-                                                {req.requestDate ? new Date(req.requestDate).toLocaleDateString() : '-'}
-                                            </td>
-                                            <td style={{ padding: '0.7rem' }}>
-                                                <span style={{
-                                                    padding: '0.25rem 0.7rem',
-                                                    borderRadius: '12px',
-                                                    fontSize: '0.8rem',
-                                                    fontWeight: 600,
-                                                    color: statusColors[req.status] || '#64748b',
-                                                    background: statusBg[req.status] || '#f1f5f9'
-                                                }}>
-                                                    {req.status}
-                                                </span>
-                                            </td>
-                                            <td style={{ padding: '0.7rem' }}>
-                                                <div style={{ display: 'flex', gap: '0.4rem' }}>
-                                                    {req.status === 'PENDING' && (
-                                                        <button
-                                                            onClick={() => handleEditRequest(req)}
-                                                            title="Edit Request"
-                                                            style={{
-                                                                padding: '5px 10px', borderRadius: '6px', border: '1px solid #dbeafe',
-                                                                background: '#eff6ff', color: '#2563eb', cursor: 'pointer',
-                                                                display: 'flex', alignItems: 'center', gap: '4px',
-                                                                fontSize: '0.78rem', fontWeight: 600
-                                                            }}
-                                                        >
-                                                            <Edit size={13} /> Edit
-                                                        </button>
-                                                    )}
-                                                    <button
-                                                        onClick={() => handleDeleteRequest(req.id)}
-                                                        title="Delete Request"
-                                                        style={{
-                                                            padding: '5px 10px', borderRadius: '6px', border: '1px solid #fecaca',
-                                                            background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
-                                                            display: 'flex', alignItems: 'center', gap: '4px',
-                                                            fontSize: '0.78rem', fontWeight: 600
-                                                        }}
-                                                    >
-                                                        <Trash2 size={13} /> Delete
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
+                                        <React.Fragment key={req.id}>
+                                            <tr>
+                                                <td style={{ padding: '0.7rem', fontWeight: 500 }}>{req.targetDepartment}</td>
+                                                <td style={{ padding: '0.7rem', fontSize: '0.9rem' }}>
+                                                    {editingAssignReq?.id === req.id
+                                                        ? editingAssignReq.subjects.join(', ') || <span style={{ color: '#94a3b8' }}>Select below</span>
+                                                        : req.subjects}
+                                                </td>
+                                                <td style={{ padding: '0.7rem' }}>
+                                                    {editingAssignReq?.id === req.id
+                                                        ? editingAssignReq.sections.join(', ') || <span style={{ color: '#94a3b8' }}>Select below</span>
+                                                        : (req.sections || '-')}
+                                                </td>
+                                                <td style={{ padding: '0.7rem', fontSize: '0.85rem', color: '#64748b' }}>
+                                                    {req.requestDate ? new Date(req.requestDate).toLocaleDateString() : '-'}
+                                                </td>
+                                                <td style={{ padding: '0.7rem' }}>
+                                                    <span style={{
+                                                        padding: '0.25rem 0.7rem',
+                                                        borderRadius: '12px',
+                                                        fontSize: '0.8rem',
+                                                        fontWeight: 600,
+                                                        color: statusColors[req.status] || '#64748b',
+                                                        background: statusBg[req.status] || '#f1f5f9'
+                                                    }}>
+                                                        {req.status}
+                                                    </span>
+                                                </td>
+                                                <td style={{ padding: '0.7rem' }}>
+                                                    <div style={{ display: 'flex', gap: '0.4rem' }}>
+                                                        {editingAssignReq?.id === req.id ? (
+                                                            <>
+                                                                <button
+                                                                    onClick={handleSaveEditRequest}
+                                                                    disabled={editingAssignReq.subjects.length === 0}
+                                                                    style={{
+                                                                        padding: '5px 10px', borderRadius: '6px', border: '1px solid #bbf7d0',
+                                                                        background: '#dcfce7', color: '#15803d', cursor: 'pointer',
+                                                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                                                        fontSize: '0.78rem', fontWeight: 600,
+                                                                        opacity: editingAssignReq.subjects.length === 0 ? 0.5 : 1
+                                                                    }}
+                                                                >
+                                                                    <CheckCircle size={13} /> Save
+                                                                </button>
+                                                                <button
+                                                                    onClick={() => setEditingAssignReq(null)}
+                                                                    style={{
+                                                                        padding: '5px 10px', borderRadius: '6px', border: '1px solid #e2e8f0',
+                                                                        background: '#f8fafc', color: '#64748b', cursor: 'pointer',
+                                                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                                                        fontSize: '0.78rem', fontWeight: 600
+                                                                    }}
+                                                                >
+                                                                    <X size={13} /> Cancel
+                                                                </button>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                {req.status === 'PENDING' && (
+                                                                    <button
+                                                                        onClick={() => handleEditRequest(req)}
+                                                                        title="Edit Request"
+                                                                        style={{
+                                                                            padding: '5px 10px', borderRadius: '6px', border: '1px solid #dbeafe',
+                                                                            background: '#eff6ff', color: '#2563eb', cursor: 'pointer',
+                                                                            display: 'flex', alignItems: 'center', gap: '4px',
+                                                                            fontSize: '0.78rem', fontWeight: 600
+                                                                        }}
+                                                                    >
+                                                                        <Edit size={13} /> Edit
+                                                                    </button>
+                                                                )}
+                                                                <button
+                                                                    onClick={() => handleDeleteRequest(req.id)}
+                                                                    title="Delete Request"
+                                                                    style={{
+                                                                        padding: '5px 10px', borderRadius: '6px', border: '1px solid #fecaca',
+                                                                        background: '#fef2f2', color: '#dc2626', cursor: 'pointer',
+                                                                        display: 'flex', alignItems: 'center', gap: '4px',
+                                                                        fontSize: '0.78rem', fontWeight: 600
+                                                                    }}
+                                                                >
+                                                                    <Trash2 size={13} /> Delete
+                                                                </button>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                            {/* Expanded Edit Panel */}
+                                            {editingAssignReq?.id === req.id && (
+                                                <tr>
+                                                    <td colSpan="6" style={{ padding: 0, border: 'none' }}>
+                                                        <div style={{ background: '#f0f9ff', border: '2px solid #93c5fd', borderRadius: '0 0 10px 10px', padding: '1rem 1.5rem', margin: '0 0 0.5rem 0' }}>
+                                                            {/* Sections */}
+                                                            {editingAssignReq.editSections.length > 0 && (
+                                                                <div style={{ marginBottom: '1rem' }}>
+                                                                    <label style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e40af', display: 'block', marginBottom: '0.5rem' }}>Sections</label>
+                                                                    <div style={{ display: 'flex', gap: '0.8rem', flexWrap: 'wrap' }}>
+                                                                        {editingAssignReq.editSections.map(sec => (
+                                                                            <label key={sec} style={{
+                                                                                display: 'flex', alignItems: 'center', gap: '0.4rem',
+                                                                                padding: '0.4rem 0.8rem', borderRadius: '8px',
+                                                                                border: editingAssignReq.sections.includes(sec) ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                                                                background: editingAssignReq.sections.includes(sec) ? '#dbeafe' : '#fff',
+                                                                                cursor: 'pointer', fontSize: '0.85rem', fontWeight: 500, transition: 'all 0.15s'
+                                                                            }}>
+                                                                                <input
+                                                                                    type="checkbox"
+                                                                                    checked={editingAssignReq.sections.includes(sec)}
+                                                                                    onChange={e => {
+                                                                                        setEditingAssignReq(prev => ({
+                                                                                            ...prev,
+                                                                                            sections: e.target.checked
+                                                                                                ? [...prev.sections, sec]
+                                                                                                : prev.sections.filter(s => s !== sec)
+                                                                                        }));
+                                                                                    }}
+                                                                                    style={{ accentColor: '#2563eb' }}
+                                                                                />
+                                                                                Section {sec}
+                                                                            </label>
+                                                                        ))}
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                            {/* Subjects */}
+                                                            <div>
+                                                                <label style={{ fontWeight: 600, fontSize: '0.85rem', color: '#1e40af', display: 'block', marginBottom: '0.5rem' }}>
+                                                                    Select Subjects ({editingAssignReq.department}{editingAssignReq.semester ? ` - Sem ${editingAssignReq.semester}` : ''})
+                                                                </label>
+                                                                {editingAssignReq.editSubjects.length === 0 ? (
+                                                                    <p style={{ color: '#94a3b8', fontSize: '0.85rem', margin: 0 }}>Loading subjects...</p>
+                                                                ) : (
+                                                                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: '0.6rem' }}>
+                                                                        {editingAssignReq.editSubjects
+                                                                            .filter(sub => !editingAssignReq.semester || sub.semester?.toString() === editingAssignReq.semester?.toString())
+                                                                            .map(sub => (
+                                                                                <label
+                                                                                    key={sub.id}
+                                                                                    style={{
+                                                                                        display: 'flex', alignItems: 'center', gap: '0.5rem',
+                                                                                        padding: '0.5rem 0.7rem', borderRadius: '8px',
+                                                                                        border: editingAssignReq.subjects.includes(sub.name)
+                                                                                            ? '2px solid #2563eb' : '1px solid #cbd5e1',
+                                                                                        background: editingAssignReq.subjects.includes(sub.name)
+                                                                                            ? '#eff6ff' : '#fff',
+                                                                                        cursor: 'pointer', transition: 'all 0.15s'
+                                                                                    }}
+                                                                                >
+                                                                                    <input
+                                                                                        type="checkbox"
+                                                                                        checked={editingAssignReq.subjects.includes(sub.name)}
+                                                                                        onChange={e => {
+                                                                                            setEditingAssignReq(prev => ({
+                                                                                                ...prev,
+                                                                                                subjects: e.target.checked
+                                                                                                    ? [...prev.subjects, sub.name]
+                                                                                                    : prev.subjects.filter(n => n !== sub.name)
+                                                                                            }));
+                                                                                        }}
+                                                                                        style={{ accentColor: '#2563eb' }}
+                                                                                    />
+                                                                                    <div>
+                                                                                        <span style={{ fontWeight: 500, fontSize: '0.85rem' }}>{sub.name}</span>
+                                                                                        <span style={{ display: 'block', fontSize: '0.75rem', color: '#94a3b8' }}>{sub.code}</span>
+                                                                                    </div>
+                                                                                </label>
+                                                                            ))}
+                                                                    </div>
+                                                                )}
+                                                            </div>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            )}
+                                        </React.Fragment>
                                     ))}
                                 </tbody>
                             </table>
